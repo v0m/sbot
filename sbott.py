@@ -157,7 +157,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 # ... (ابق على باقي الدوال كما هي)
 
 def main() -> None:
-    application = Application.builder().token("TOKEN").build()
+    application = Application.builder().token("8016307177:AAFlxm08xJ2ZxQRuQzDUVOMPDoV-F-Tz1jg").build()
     
     # المعالجات
     application.add_handler(CommandHandler("start", start))
