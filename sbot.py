@@ -3,16 +3,23 @@ import subprocess
 import tempfile
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackContext,
+    CallbackQueryHandler,
+    filters
+)
 import requests
 from urllib.parse import urlparse
 import nmap
-import re
 import json
 
 # تمكين التسجيل
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -31,18 +38,18 @@ VULNERABILITIES = {
     'services': 'Services Detection'
 }
 
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: CallbackContext) -> None:
     """إرسال رسالة ترحيبية عند استخدام الأمر /start"""
     user = update.effective_user
-    update.message.reply_text(
+    await update.message.reply_text(
         f"مرحبًا {user.first_name}!\n\n"
         "أنا بوت فحص الثغرات الأمنية المتقدم. أرسل لي رابط موقع وسأفحصه باستخدام sqlmap و nmap.\n\n"
         "استخدم /scan <رابط الموقع> لبدء الفحص أو /help للمساعدة."
     )
 
-def help_command(update: Update, context: CallbackContext) -> None:
+async def help_command(update: Update, context: CallbackContext) -> None:
     """إرسال رسالة المساعدة عند استخدام الأمر /help"""
-    update.message.reply_text(
+    await update.message.reply_text(
         "🛡️ كيفية استخدام بوت الفحص الأمني المتقدم:\n\n"
         "1. الفحص الأساسي:\n"
         "   - أرسل /scan <رابط الموقع> (مثال: /scan https://example.com)\n"
@@ -58,14 +65,12 @@ def help_command(update: Update, context: CallbackContext) -> None:
         "⚠️ تحذير: تأكد من أن لديك إذنًا لفحص الموقع المستهدف."
     )
 
-def scan_website(update: Update, context: CallbackContext) -> None:
+async def scan_website(update: Update, context: CallbackContext) -> None:
     """فحص الموقع المطلوب"""
-    chat_id = update.effective_chat.id
-    
     # الحصول على الرابط من رسالة المستخدم
     if update.message.text.startswith('/scan'):
-        if len(context.args) == 0:
-            update.message.reply_text("الرجاء إدخال رابط الموقع بعد الأمر /scan")
+        if not context.args:
+            await update.message.reply_text("الرجاء إدخال رابط الموقع بعد الأمر /scan")
             return
         url = context.args[0]
     else:
@@ -73,11 +78,11 @@ def scan_website(update: Update, context: CallbackContext) -> None:
     
     # التحقق من صحة الرابط
     if not is_valid_url(url):
-        update.message.reply_text("الرابط غير صالح. الرجاء إدخال رابط صحيح يبدأ بـ http:// أو https://")
+        await update.message.reply_text("الرابط غير صالح. الرجاء إدخال رابط صحيح يبدأ بـ http:// أو https://")
         return
     
     # إعلام المستخدم ببدء الفحص
-    update.message.reply_text(f"🔍 جاري فحص الموقع: {url}\nقد يستغرق هذا بعض الوقت...")
+    await update.message.reply_text(f"🔍 جاري فحص الموقع: {url}\nقد يستغرق هذا بعض الوقت...")
     
     # فحص الثغرات الأساسية
     results = perform_basic_scan(url)
@@ -87,7 +92,7 @@ def scan_website(update: Update, context: CallbackContext) -> None:
     results['nmap'] = nmap_results
     
     # إرسال النتائج
-    send_results(update, context, url, results)
+    await send_results(update, context, url, results)
 
 def perform_basic_scan(url: str) -> dict:
     """تنفيذ فحص الثغرات الأساسي"""
@@ -123,8 +128,7 @@ def perform_quick_nmap_scan(url: str) -> dict:
     results = {'target': domain, 'ports': {}}
     
     try:
-        # فحص سريع للمنافذ الشائعة
-        nm.scan(hosts=domain, arguments='-F -T4')  # فحص سريع لأهم 100 منفذ
+        nm.scan(hosts=domain, arguments='-F -T4')
         
         for host in nm.all_hosts():
             results['host'] = host
@@ -140,7 +144,6 @@ def perform_quick_nmap_scan(url: str) -> dict:
                         'version': nm[host][proto][port].get('version', '')
                     }
                     
-                    # اكتشاف بعض الثغرات بناء على الخدمات
                     if 'http' in nm[host][proto][port]['name'] and port != 80 and port != 443:
                         results['vulnerabilities'] = results.get('vulnerabilities', {})
                         results['vulnerabilities'][f'port_{port}'] = f'Non-standard HTTP port ({port}) detected'
@@ -157,32 +160,27 @@ def perform_quick_nmap_scan(url: str) -> dict:
 def perform_sqlmap_scan(url: str) -> str:
     """تنفيذ فحص SQL Injection باستخدام sqlmap"""
     try:
-        # إنشاء ملف مؤقت لحفظ النتائج
         with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as temp_file:
             temp_path = temp_file.name
         
-        # تنفيذ sqlmap مع خيارات أساسية
         command = [
             'sqlmap',
-            '-u', f"{url}?id=1",  # نقطة اختبار افتراضية
-            '--batch',  # وضع غير تفاعلي
-            '--risk=2',  # مستوى خطر متوسط
-            '--level=3',  # مستوى اختبار 3
+            '-u', f"{url}?id=1",
+            '--batch',
+            '--risk=2',
+            '--level=3',
             '--output', temp_path,
             '--flush-session',
-            '--crawl=1'  # الزحف لفحص روابط إضافية
+            '--crawl=1'
         ]
         
-        # تنفيذ الأمر
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
         
-        # قراءة النتائج
         if os.path.exists(temp_path):
             with open(temp_path, 'r') as f:
                 results = json.load(f)
             
-            # تحليل النتائج
             vulnerabilities = []
             for target in results.get('targets', {}):
                 for data in target.get('data', []):
@@ -200,7 +198,6 @@ def perform_sqlmap_scan(url: str) -> str:
         return f"❌ خطأ في فحص sqlmap: {str(e)}"
     
     finally:
-        # تنظيف الملف المؤقت
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
@@ -211,7 +208,6 @@ def perform_full_nmap_scan(url: str) -> str:
     results = []
     
     try:
-        # فحص متقدم مع اكتشاف الخدمات والإصدارات
         nm.scan(hosts=domain, arguments='-sV -T4 -A --script=vuln')
         
         for host in nm.all_hosts():
@@ -230,7 +226,6 @@ def perform_full_nmap_scan(url: str) -> str:
                     results.append(f"المنتج: {service.get('product', 'غير معروف')}")
                     results.append(f"الإصدار: {service.get('version', 'غير معروف')}")
                     
-                    # عرض معلومات الثغرات إذا وجدت
                     if 'script' in service:
                         for script, output in service['script'].items():
                             if 'vuln' in script.lower() or 'VULNERABLE' in output.upper():
@@ -242,14 +237,13 @@ def perform_full_nmap_scan(url: str) -> str:
     except Exception as e:
         return f"❌ خطأ في فحص nmap: {str(e)}"
 
-def send_results(update: Update, context: CallbackContext, url: str, results: dict) -> None:
+async def send_results(update: Update, context: CallbackContext, url: str, results: dict) -> None:
     """إرسال نتائج الفحص للمستخدم"""
     message = f"📊 نتائج فحص الموقع: {url}\n\n"
     
     if 'error' in results:
         message += f"❌ حدث خطأ أثناء الفحص:\n{results['error']}"
     else:
-        # عرض الثغرات الأساسية
         if results.get('vulnerabilities'):
             message += "⚠️ تم اكتشاف الثغرات المحتملة التالية:\n"
             for vuln, desc in results['vulnerabilities'].items():
@@ -258,7 +252,6 @@ def send_results(update: Update, context: CallbackContext, url: str, results: di
         else:
             message += "✅ لم يتم اكتشاف أي ثغرات أمنية واضحة في الفحص الأساسي.\n\n"
         
-        # عرض نتائج nmap الأساسية
         if 'nmap' in results and not results['nmap'].get('error'):
             message += "🔍 نتائج فحص المنافذ الأساسي:\n"
             message += f"الخادم: {results['nmap'].get('host', 'غير معروف')}\n"
@@ -281,7 +274,6 @@ def send_results(update: Update, context: CallbackContext, url: str, results: di
         
         message += "\nملاحظة: هذه النتائج أولية وقد تحتاج إلى تأكيد بواسطة أدوات متخصصة."
     
-    # إضافة زر لفحوصات متقدمة
     keyboard = [
         [InlineKeyboardButton("فحص SQL Injection متقدم (sqlmap)", callback_data=f"sql_{url}")],
         [InlineKeyboardButton("فحص المنافذ والخدمات (nmap)", callback_data=f"nmap_{url}")],
@@ -289,20 +281,19 @@ def send_results(update: Update, context: CallbackContext, url: str, results: di
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(message, reply_markup=reply_markup)
+    await update.message.reply_text(message, reply_markup=reply_markup)
 
-def button_handler(update: Update, context: CallbackContext) -> None:
+async def button_handler(update: Update, context: CallbackContext) -> None:
     """معالجة ضغطات الأزرار"""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     data = query.data.split('_')
     scan_type = data[0]
     url = '_'.join(data[1:])
     
-    query.edit_message_text(text=f"🔍 جاري تنفيذ فحص {VULNERABILITIES.get(scan_type, scan_type)} متقدم للموقع: {url}...")
+    await query.edit_message_text(text=f"🔍 جاري تنفيذ فحص {VULNERABILITIES.get(scan_type, scan_type)} متقدم للموقع: {url}...")
     
-    # تنفيذ الفحص المطلوب
     if scan_type == 'sql':
         result = perform_sqlmap_scan(url)
     elif scan_type == 'nmap':
@@ -314,37 +305,37 @@ def button_handler(update: Update, context: CallbackContext) -> None:
     else:
         result = "نوع الفحص غير معروف"
     
-    query.edit_message_text(text=f"نتيجة فحص {VULNERABILITIES.get(scan_type, scan_type)} لـ {url}:\n\n{result}")
+    await query.edit_message_text(text=f"نتيجة فحص {VULNERABILITIES.get(scan_type, scan_type)} لـ {url}:\n\n{result}")
 
-def nmap_command(update: Update, context: CallbackContext) -> None:
+async def nmap_command(update: Update, context: CallbackContext) -> None:
     """معالجة أمر nmap المباشر"""
-    if len(context.args) == 0:
-        update.message.reply_text("الرجاء إدخال رابط الموقع بعد الأمر /nmap")
+    if not context.args:
+        await update.message.reply_text("الرجاء إدخال رابط الموقع بعد الأمر /nmap")
         return
     
     url = context.args[0]
     if not is_valid_url(url):
-        update.message.reply_text("الرابط غير صالح. الرجاء إدخال رابط صحيح يبدأ بـ http:// أو https://")
+        await update.message.reply_text("الرابط غير صالح. الرجاء إدخال رابط صحيح يبدأ بـ http:// أو https://")
         return
     
-    update.message.reply_text(f"🔍 جاري تنفيذ فحص nmap متقدم للموقع: {url}...")
+    await update.message.reply_text(f"🔍 جاري تنفيذ فحص nmap متقدم للموقع: {url}...")
     result = perform_full_nmap_scan(url)
-    update.message.reply_text(f"نتائج فحص nmap لـ {url}:\n\n{result}")
+    await update.message.reply_text(f"نتائج فحص nmap لـ {url}:\n\n{result}")
 
-def sqlmap_command(update: Update, context: CallbackContext) -> None:
+async def sqlmap_command(update: Update, context: CallbackContext) -> None:
     """معالجة أمر sqlmap المباشر"""
-    if len(context.args) == 0:
-        update.message.reply_text("الرجاء إدخال رابط الموقع بعد الأمر /sqlmap")
+    if not context.args:
+        await update.message.reply_text("الرجاء إدخال رابط الموقع بعد الأمر /sqlmap")
         return
     
     url = context.args[0]
     if not is_valid_url(url):
-        update.message.reply_text("الرابط غير صالح. الرجاء إدخال رابط صحيح يبدأ بـ http:// أو https://")
+        await update.message.reply_text("الرابط غير صالح. الرجاء إدخال رابط صحيح يبدأ بـ http:// أو https://")
         return
     
-    update.message.reply_text(f"🔍 جاري تنفيذ فحص sqlmap متقدم للموقع: {url}...")
+    await update.message.reply_text(f"🔍 جاري تنفيذ فحص sqlmap متقدم للموقع: {url}...")
     result = perform_sqlmap_scan(url)
-    update.message.reply_text(f"نتائج فحص sqlmap لـ {url}:\n\n{result}")
+    await update.message.reply_text(f"نتائج فحص sqlmap لـ {url}:\n\n{result}")
 
 def is_valid_url(url: str) -> bool:
     """التحقق من صحة الرابط"""
@@ -356,28 +347,23 @@ def is_valid_url(url: str) -> bool:
 
 def main() -> None:
     """تشغيل البوت"""
-    # استبدل 'YOUR_TELEGRAM_BOT_TOKEN' بتوكن البوت الخاص بك
-    updater = Updater("YOUR_TELEGRAM_BOT_TOKEN", use_context=True)
-    
-    # الحصول على المُنشِط لمعالجة الأوامر
-    dispatcher = updater.dispatcher
+    application = Application.builder().token("7869694847:AAGqNKvVPcz6NTURhifRN4hgg4Y2azH2Zs8").build()
     
     # معالجات الأوامر
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(CommandHandler("scan", scan_website))
-    dispatcher.add_handler(CommandHandler("nmap", nmap_command))
-    dispatcher.add_handler(CommandHandler("sqlmap", sqlmap_command))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("scan", scan_website))
+    application.add_handler(CommandHandler("nmap", nmap_command))
+    application.add_handler(CommandHandler("sqlmap", sqlmap_command))
     
-    # معالجة الرسائل النصية (الروابط المرسلة مباشرة)
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, scan_website))
+    # معالجة الرسائل النصية
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan_website))
     
     # معالجة ضغطات الأزرار
-    dispatcher.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CallbackQueryHandler(button_handler))
     
     # بدء البوت
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
