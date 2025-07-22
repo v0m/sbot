@@ -43,7 +43,8 @@ def nmap_scan(update: Update, context: CallbackContext):
         update.message.reply_text(f'حدث خطأ أثناء الفحص: {str(e)}')
 
 def main():
-    updater = Updater(TOKEN, use_context=True)
+    # تمت إزالة use_context لأنها لم تعد مستخدمة في الإصدارات الحديثة
+    updater = Updater(TOKEN)
     dp = updater.dispatcher
     
     dp.add_handler(CommandHandler("start", start))
