@@ -1,6 +1,6 @@
 import subprocess
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext
 
 # استبدل 'TOKEN' بتوكن البوت الخاص بك
 TOKEN = '8016307177:AAFlxm08xJ2ZxQRuQzDUVOMPDoV-F-Tz1jg'
